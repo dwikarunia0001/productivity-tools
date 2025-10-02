@@ -34,7 +34,7 @@ export default function RootLayout({ children }) {
           {/* Overlay untuk mobile */}
           {sidebarOpen && window.innerWidth < 1024 && (
             <div 
-              className="fixed inset-0 bg-black bg-opacity-30 z-30 lg:hidden"
+              className="fixed inset-0 bg-black/50 z-30 lg:hidden"
               onClick={() => setSidebarOpen(false)}
             />
           )}
