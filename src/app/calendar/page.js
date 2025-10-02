@@ -6,6 +6,50 @@ import EventModal from '@/components/EventModal';
 import DeleteConfirmModal from '@/components/DeleteConfirmModal';
 import useCalendarStore from '@/lib/useCalendarStore';
 
+// Helper: Tambahkan hari ke tanggal
+const addDays = (date, days) => {
+  const result = new Date(date);
+  result.setDate(result.getDate() + days);
+  return result;
+};
+
+// Helper: Dapatkan rentang tanggal
+const getDateRange = (startDate, range) => {
+  const start = new Date(startDate);
+  let end;
+  if (range === 'day') {
+    end = new Date(start);
+  } else if (range === 'week') {
+    // Minggu dimulai dari hari ini sampai 6 hari ke depan
+    end = addDays(start, 6);
+  } else {
+    // Bulan: dari tanggal 1 sampai akhir bulan
+    const year = start.getFullYear();
+    const month = start.getMonth();
+    start.setDate(1);
+    end = new Date(year, month + 1, 0); // akhir bulan
+  }
+  return { start, end };
+};
+
+// Helper: Format tanggal untuk display
+const formatDateRange = (range, date) => {
+  const d = new Date(date);
+  if (range === 'day') {
+    return d.toLocaleDateString('id-ID', {
+      weekday: 'long',
+      year: 'numeric',
+      month: 'long',
+      day: 'numeric'
+    });
+  } else if (range === 'week') {
+    const end = addDays(d, 6);
+    return `${d.toLocaleDateString('id-ID', { day: 'numeric', month: 'short' })} - ${end.toLocaleDateString('id-ID', { day: 'numeric', month: 'short', year: 'numeric' })}`;
+  } else {
+    return d.toLocaleDateString('id-ID', { year: 'numeric', month: 'long' });
+  }
+};
+
 export default function CalendarPage() {
   const [selectedDate, setSelectedDate] = useState('');
   const [isModalOpen, setIsModalOpen] = useState(false);
@@ -14,12 +58,16 @@ export default function CalendarPage() {
   const [eventToDelete, setEventToDelete] = useState(null);
   const [sidebarDate, setSidebarDate] = useState(new Date().toISOString().split('T')[0]);
 
-  // === Filter & Resize ===
+  // === Filter State Baru ===
+  const [timeRange, setTimeRange] = useState('day'); // 'day' | 'week' | 'month'
   const [priorityFilter, setPriorityFilter] = useState('all');
   const [statusFilter, setStatusFilter] = useState('all');
+  const [categoryFilter, setCategoryFilter] = useState('all');
+  const [searchQuery, setSearchQuery] = useState('');
+
   const [sidebarHeight, setSidebarHeight] = useState(500);
 
-  // === ✅ Pomodoro State ===
+  // === Pomodoro & Musik State (tidak diubah) ===
   const [mode, setMode] = useState('pomodoro');
   const [timeLeft, setTimeLeft] = useState(25 * 60);
   const [isRunning, setIsRunning] = useState(false);
@@ -28,7 +76,6 @@ export default function CalendarPage() {
   const POMODORO_DURATION = 25 * 60;
   const BREAK_DURATION = 5 * 60;
 
-  // === ✅ Music State ===
   const playlist = [
     { title: 'Lo-Fi Study Beats Vol. 1', artist: 'Focus Flow', src: 'https://www.soundhelix.com/examples/mp3/SoundHelix-Song-1.mp3' },
     { title: 'Chill Coding Session', artist: 'Deep Work', src: 'https://www.soundhelix.com/examples/mp3/SoundHelix-Song-2.mp3' },
@@ -42,13 +89,12 @@ export default function CalendarPage() {
   const [volume, setVolume] = useState(0.3);
   const musicAudioRef = useRef(null);
 
-  // === ✅ Panel Control ===
   const [showFocusPanel, setShowFocusPanel] = useState(false);
   const panelRef = useRef(null);
 
-  const { getEventsByDate, updateEvent } = useCalendarStore();
+  const { getEventsByDate, getAllEvents, updateEvent } = useCalendarStore();
 
-  // === Pomodoro Logic ===
+  // === Pomodoro Logic (tidak diubah) ===
   useEffect(() => {
     if (mode === 'pomodoro') {
       setTimeLeft(POMODORO_DURATION);
@@ -60,9 +106,7 @@ export default function CalendarPage() {
   useEffect(() => {
     let interval = null;
     if (isRunning && timeLeft > 0) {
-      interval = setInterval(() => {
-        setTimeLeft(prev => prev - 1);
-      }, 1000);
+      interval = setInterval(() => setTimeLeft(prev => prev - 1), 1000);
     } else if (timeLeft === 0) {
       if (pomodoroAudioRef.current) {
         pomodoroAudioRef.current.play().catch(() => {});
@@ -79,7 +123,7 @@ export default function CalendarPage() {
     setTimeLeft(mode === 'pomodoro' ? POMODORO_DURATION : BREAK_DURATION);
   };
 
-  // === Music Logic ===
+  // === Music Logic (tidak diubah) ===
   const currentTrack = playlist[currentTrackIndex];
 
   useEffect(() => {
@@ -140,7 +184,7 @@ export default function CalendarPage() {
     return () => document.removeEventListener('mousedown', handleClickOutside);
   }, [showFocusPanel]);
 
-  // === Reminder System ===
+  // === Reminder System (tidak diubah) ===
   useEffect(() => {
     const checkReminders = () => {
       const now = new Date();
@@ -188,12 +232,29 @@ export default function CalendarPage() {
     });
   };
 
+  // === Ambil semua agenda dalam rentang waktu ===
+  const getAgendaInDateRange = () => {
+    const { start, end } = getDateRange(sidebarDate, timeRange);
+    const allEvents = getAllEvents().filter(event => event.type === 'agenda');
+    
+    return allEvents.filter(event => {
+      const eventDate = new Date(event.date);
+      return eventDate >= start && eventDate <= end;
+    });
+  };
+
   // === Filter Events ===
-  const allAgendaEvents = getEventsByDate(sidebarDate).filter(event => event.type === 'agenda');
+  const allAgendaEvents = getAgendaInDateRange();
   const filteredEvents = allAgendaEvents.filter(event => {
+    // Filter prioritas
     if (priorityFilter !== 'all' && event.priority !== priorityFilter) return false;
+    // Filter status
     if (statusFilter === 'completed' && !event.completed) return false;
     if (statusFilter === 'pending' && event.completed) return false;
+    // Filter kategori
+    if (categoryFilter !== 'all' && event.category !== categoryFilter) return false;
+    // Filter pencarian
+    if (searchQuery && !event.content.toLowerCase().includes(searchQuery.toLowerCase())) return false;
     return true;
   });
 
@@ -240,15 +301,6 @@ export default function CalendarPage() {
     );
   };
 
-  const formatDateForDisplay = (dateStr) => {
-    return new Date(dateStr).toLocaleDateString('id-ID', {
-      weekday: 'long',
-      year: 'numeric',
-      month: 'long',
-      day: 'numeric'
-    });
-  };
-
   const formatTime = (seconds) => {
     const mins = Math.floor(seconds / 60).toString().padStart(2, '0');
     const secs = (seconds % 60).toString().padStart(2, '0');
@@ -266,7 +318,6 @@ export default function CalendarPage() {
           </p>
         </div>
         <div className="flex items-center gap-3">
-          {/* 🎵 Musik */}
           <div className="flex flex-col items-center">
             <button
               onClick={() => setShowFocusPanel(!showFocusPanel)}
@@ -281,8 +332,6 @@ export default function CalendarPage() {
               <span className="text-xs text-green-600 mt-1 font-medium hidden sm:block">🎵 Aktif</span>
             )}
           </div>
-
-          {/* ⏱️ Pomodoro */}
           <div className="flex flex-col items-center">
             <button
               onClick={() => setShowFocusPanel(!showFocusPanel)}
@@ -300,9 +349,7 @@ export default function CalendarPage() {
         </div>
       </div>
 
-      {/* Layout Responsif */}
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-4">
-        {/* Kalender */}
         <div className="lg:col-span-6">
           <div className="bg-white rounded-xl p-4 border border-slate-200 shadow-sm">
             <Calendar 
@@ -312,7 +359,6 @@ export default function CalendarPage() {
           </div>
         </div>
 
-        {/* Agenda */}
         <div className="lg:col-span-6">
           <div 
             className="bg-white rounded-xl border border-slate-200 shadow-sm flex flex-col overflow-hidden"
@@ -321,13 +367,50 @@ export default function CalendarPage() {
             <div className="p-4 flex-1 flex flex-col">
               <h2 className="font-semibold text-slate-800 text-base sm:text-lg mb-2">Agenda</h2>
               <p className="text-sm text-slate-600 mb-3">
-                {formatDateForDisplay(sidebarDate)}
+                {formatDateRange(timeRange, sidebarDate)}
               </p>
 
-              {/* Filter */}
-              <div className="mb-3 space-y-2">
+              {/* Panel Filter Lengkap */}
+              <div className="mb-4 space-y-3">
+                {/* Rentang Waktu */}
                 <div>
-                  <label className="block text-xs font-medium text-slate-700 mb-1">Filter Prioritas</label>
+                  <label className="block text-xs font-medium text-slate-700 mb-1">Rentang Waktu</label>
+                  <div className="grid grid-cols-3 gap-2">
+                    {[
+                      { value: 'day', label: '1 Hari' },
+                      { value: 'week', label: '1 Minggu' },
+                      { value: 'month', label: '1 Bulan' }
+                    ].map((opt) => (
+                      <button
+                        key={opt.value}
+                        onClick={() => setTimeRange(opt.value)}
+                        className={`text-xs px-2 py-1.5 rounded-lg font-medium transition ${
+                          timeRange === opt.value
+                            ? 'bg-blue-100 text-blue-800 ring-1 ring-blue-300'
+                            : 'bg-slate-100 text-slate-700 hover:bg-slate-200'
+                        }`}
+                      >
+                        {opt.label}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                {/* Pencarian */}
+                <div>
+                  <label className="block text-xs font-medium text-slate-700 mb-1">Cari Agenda</label>
+                  <input
+                    type="text"
+                    value={searchQuery}
+                    onChange={(e) => setSearchQuery(e.target.value)}
+                    placeholder="Cari berdasarkan konten..."
+                    className="w-full text-xs px-2.5 py-1.5 border border-slate-300 rounded-lg focus:ring-1 focus:ring-blue-200 outline-none"
+                  />
+                </div>
+
+                {/* Filter Prioritas */}
+                <div>
+                  <label className="block text-xs font-medium text-slate-700 mb-1">Prioritas</label>
                   <div className="flex flex-wrap gap-1">
                     {[
                       { value: 'all', label: 'Semua' },
@@ -353,8 +436,9 @@ export default function CalendarPage() {
                   </div>
                 </div>
 
+                {/* Filter Status */}
                 <div>
-                  <label className="block text-xs font-medium text-slate-700 mb-1">Filter Status</label>
+                  <label className="block text-xs font-medium text-slate-700 mb-1">Status</label>
                   <div className="flex gap-1">
                     {[
                       { value: 'all', label: 'Semua' },
@@ -367,6 +451,31 @@ export default function CalendarPage() {
                         className={`text-[10px] px-2 py-1 rounded-full font-medium transition ${
                           statusFilter === opt.value 
                             ? 'bg-emerald-100 text-emerald-800 ring-1 ring-emerald-300' 
+                            : 'bg-slate-100 text-slate-700 hover:bg-slate-200'
+                        }`}
+                      >
+                        {opt.label}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                {/* Filter Kategori */}
+                <div>
+                  <label className="block text-xs font-medium text-slate-700 mb-1">Kategori</label>
+                  <div className="flex gap-1">
+                    {[
+                      { value: 'all', label: 'Semua' },
+                      { value: 'business', label: 'Bisnis' },
+                      { value: 'household', label: 'Rumah' },
+                      { value: 'personal', label: 'Pribadi' }
+                    ].map((opt) => (
+                      <button
+                        key={opt.value}
+                        onClick={() => setCategoryFilter(opt.value)}
+                        className={`text-[10px] px-2 py-1 rounded-full font-medium transition ${
+                          categoryFilter === opt.value 
+                            ? 'bg-purple-100 text-purple-800 ring-1 ring-purple-300' 
                             : 'bg-slate-100 text-slate-700 hover:bg-slate-200'
                         }`}
                       >
@@ -467,12 +576,11 @@ export default function CalendarPage() {
                     );
                   })
                 ) : (
-                  <p className="text-slate-500 text-sm">Tidak ada agenda.</p>
+                  <p className="text-slate-500 text-sm">Tidak ada agenda yang sesuai filter.</p>
                 )}
               </div>
             </div>
 
-            {/* Resize Handle */}
             <div
               onMouseDown={startResizing}
               className="h-2.5 bg-slate-100 flex items-center justify-center cursor-row-resize hover:bg-slate-200 transition-colors"
@@ -510,7 +618,7 @@ export default function CalendarPage() {
         onEnded={handleMusicEnded}
       />
 
-      {/* ✅ Panel Fokus Lengkap (Pomodoro + Musik) */}
+      {/* Panel Fokus */}
       {showFocusPanel && (
         <div className="fixed inset-0 z-50 overflow-hidden">
           <div className="absolute inset-0 bg-black/50" />

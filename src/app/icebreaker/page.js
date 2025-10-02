@@ -518,21 +518,25 @@ export default function IceBreakerPage() {
     }
   }, [mode]);
 
-  useEffect(() => {
-    let interval = null;
-    if (isRunning && timeLeft > 0) {
-      interval = setInterval(() => {
-        setTimeLeft(prev => prev - 1);
-      }, 1000);
-    } else if (timeLeft === 0) {
-      if (pomodoroAudioRef.current) {
-        pomodoroAudioRef.current.play().catch(() => {});
-      }
-      setMode(prev => prev === 'pomodoro' ? 'break' : 'pomodoro');
-      setIsRunning(false);
+ // Di dalam useEffect Pomodoro (saat timeLeft === 0)
+useEffect(() => {
+  let interval = null;
+  if (isRunning && timeLeft > 0) {
+    interval = setInterval(() => setTimeLeft(prev => prev - 1), 1000);
+  } else if (timeLeft === 0) {
+    // 🔔 Notifikasi & ganti mode
+    if (pomodoroAudioRef.current) {
+      pomodoroAudioRef.current.play().catch(() => {});
     }
-    return () => clearInterval(interval);
-  }, [isRunning, timeLeft, mode]);
+    
+    // ✅ Tambahkan ke store global
+    usePomodoroStore.getState().addSession('calendar');
+    
+    setMode(prev => prev === 'pomodoro' ? 'break' : 'pomodoro');
+    setIsRunning(false);
+  }
+  return () => clearInterval(interval);
+}, [isRunning, timeLeft, mode]);
 
   const togglePomodoro = () => setIsRunning(!isRunning);
   const resetPomodoro = () => {
